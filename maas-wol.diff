@@ -1,0 +1,100 @@
+diff --git a/drivers/power/registry.py b/drivers/power/registry.py
+index 8ea5b27..2a4e74c 100644
+--- a/drivers/power/registry.py
++++ b/drivers/power/registry.py
+@@ -26,6 +26,7 @@ from provisioningserver.drivers.power.seamicro import SeaMicroPowerDriver
+ from provisioningserver.drivers.power.ucsm import UCSMPowerDriver
+ from provisioningserver.drivers.power.virsh import VirshPowerDriver
+ from provisioningserver.drivers.power.vmware import VMwarePowerDriver
++from provisioningserver.drivers.power.wol import WOLPowerDriver
+ from provisioningserver.drivers.power.wedge import WedgePowerDriver
+ from provisioningserver.utils.registry import Registry
+ 
+@@ -66,6 +67,7 @@ power_drivers = [
+     UCSMPowerDriver(),
+     VirshPowerDriver(),
+     VMwarePowerDriver(),
++    WOLPowerDriver(),
+     WedgePowerDriver(),
+ ]
+ for driver in power_drivers:
+diff --git a/drivers/power/wol.py b/drivers/power/wol.py
+new file mode 100644
+index 0000000..96fd841
+--- /dev/null
++++ b/drivers/power/wol.py
+@@ -0,0 +1,74 @@
++# Copyright 2016 Canonical Ltd.  This software is licensed under the
++# GNU Affero General Public License version 3 (see the file LICENSE).
++
++"""WOL Power Driver."""
++
++__all__ = []
++
++from twisted.internet.defer import maybeDeferred
++from provisioningserver.drivers import (
++    IP_EXTRACTOR_PATTERNS,
++    make_ip_extractor,
++    make_setting_field,
++    SETTING_SCOPE,
++)
++from provisioningserver.drivers.power import PowerDriver
++from provisioningserver.logger import get_maas_logger
++from provisioningserver.utils import shell
++
++maaslog = get_maas_logger("drivers.power.wol")
++
++# wol_cmd can be wakeonlan, etherwake, and powerwake.
++# though etherwake needs sudo
++wol_cmd = "wakeonlan"
++
++REQUIRED_PACKAGES = [
++    [wol_cmd, wol_cmd],
++]
++
++class WOLPowerDriver(PowerDriver):
++
++    name = "wol"
++    chassis = True
++    description = "WOL"
++    settings = [
++        make_setting_field("power_mac", "MAC address", required=True),
++    ]
++    ip_extractor = None
++    queryable = False
++
++    def detect_missing_packages(self):
++        missing_packages = set()
++        for binary, package in REQUIRED_PACKAGES:
++            if not shell.has_command_available(binary):
++                missing_packages.add(package)
++        return list(missing_packages)
++
++    def on(self, system_id, context):
++        """Override `on` as we do not need retry logic."""
++        return maybeDeferred(self.power_on, system_id, context)
++
++    def off(self, system_id, context):
++        """Override `off` as we do not need retry logic."""
++        return maybeDeferred(self.power_off, system_id, context)
++
++    def query(self, system_id, context):
++        """Override `query` as we do not need retry logic."""
++        return maybeDeferred(self.power_query, system_id, context)
++
++    def power_on(self, system_id, context):
++        """Power on machine using wake on lan."""
++        command = [wol_cmd, context.get("power_mac")]
++        maaslog.info("WOL power on %s." % system_id)
++        shell.run_command(*command)
++
++    def power_off(self, system_id, context):
++        """Power off machine manually."""
++        maaslog.info("You need to power off %s manually." % system_id)
++
++    def power_query(self, system_id, context):
++        """Power query machine manually."""
++        maaslog.info(
++            "You need to check power state of %s manually." % system_id
++        )
++        return "unknown"
